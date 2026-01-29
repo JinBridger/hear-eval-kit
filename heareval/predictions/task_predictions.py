@@ -221,6 +221,9 @@ class AbstractPredictionModel(pl.LightningModule):
             idx: label for (label, idx) in self.label_to_idx.items()
         }
         self.scores = scores
+        # Preload for accumulation (PL 2.0 migration)
+        self.validation_step_outputs: List = []
+        self.test_step_outputs: List = []
 
     def forward(self, x):
         # x = self.layernorm(x)
@@ -251,10 +254,14 @@ class AbstractPredictionModel(pl.LightningModule):
         return {**z, **metadata}
 
     def validation_step(self, batch, batch_idx):
-        return self._step(batch, batch_idx)
+        output = self._step(batch, batch_idx)
+        self.validation_step_outputs.append(output)
+        return output
 
     def test_step(self, batch, batch_idx):
-        return self._step(batch, batch_idx)
+        output = self._step(batch, batch_idx)
+        self.test_step_outputs.append(output)
+        return output
 
     def log_scores(self, name: str, score_args):
         """Logs the metric score value for each score defined for the model"""
@@ -298,11 +305,13 @@ class AbstractPredictionModel(pl.LightningModule):
         """
         raise NotImplementedError("Implement this in children")
 
-    def validation_epoch_end(self, outputs: List[Dict[str, List[Any]]]):
-        self._score_epoch_end("val", outputs)
+    def on_validation_epoch_end(self):
+        self._score_epoch_end("val", self.validation_step_outputs)
+        self.validation_step_outputs.clear()
 
-    def test_epoch_end(self, outputs: List[Dict[str, List[Any]]]):
-        self._score_epoch_end("test", outputs)
+    def on_test_epoch_end(self):
+        self._score_epoch_end("test", self.test_step_outputs)
+        self.test_step_outputs.clear()
 
     def _flatten_batched_outputs(
         self,
@@ -1013,7 +1022,7 @@ def task_predictions_train(
     # profiler = pl.profiler.AdvancedProfiler(output_filename="predictions-profile.txt")
     trainer = pl.Trainer(
         callbacks=[checkpoint_callback, early_stop_callback],
-        gpus=gpus,
+        devices=gpus,
         check_val_every_n_epoch=conf["check_val_every_n_epoch"],
         max_epochs=conf["max_epochs"],
         deterministic=deterministic,
@@ -1099,7 +1108,8 @@ def task_predictions_test(
     trainer = grid_point.trainer
     # This hack is necessary because we use the best validation epoch to
     # choose the event postprocessing
-    trainer.fit_loop.current_epoch = grid_point.epoch
+    # trainer.fit_loop.current_epoch = grid_point.epoch
+    trainer.fit_loop.epoch_progress.current.completed = grid_point.epoch
 
     # Run tests
     test_results = trainer.test(

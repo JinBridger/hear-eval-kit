@@ -18,10 +18,10 @@ from tqdm import tqdm
 import heareval.gpu_max_mem as gpu_max_mem
 from heareval.embeddings.task_embeddings import Embedding, task_embeddings
 
-if torch.cuda.is_available() and not tf.test.is_gpu_available(
-    cuda_only=False, min_cuda_compute_capability=None
-):
-    raise ValueError("GPUs not available in tensorflow, but found by pytorch")
+# if torch.cuda.is_available() and not tf.test.is_gpu_available(
+    # cuda_only=False, min_cuda_compute_capability=None
+# ):
+    # raise ValueError("GPUs not available in tensorflow, but found by pytorch")
 
 
 @click.command()
@@ -108,6 +108,7 @@ def runner(
 
         start = time.time()
         gpu_max_mem.reset()
+        print("Now process task:", task_path.name)
 
         task_embeddings(embedding, task_path, embed_task_dir)
 
